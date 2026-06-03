@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+env/
+.venv/
+/.mypy_cache
+backend/.venv
+frontend/node_modules
+frontend/dist
+.env
+frontend/.env
+.agents/
+.codex/
+.repo.git/
+/.DS_Store
