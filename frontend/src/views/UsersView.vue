@@ -83,7 +83,14 @@
         </div>
       </div>
 
-      <div v-if="users.length === 0" class="empty-state compact">
+      <LoadingState
+        v-if="loadingUsers"
+        compact
+        title="Loading users"
+        message="Fetching the user directory."
+      />
+
+      <div v-else-if="users.length === 0" class="empty-state compact">
         <strong>No users found</strong>
         <span>Create the first user to start managing access.</span>
       </div>
@@ -136,12 +143,14 @@ import { useToastStore } from '../stores/toast'
 import { useConfirmStore } from '../stores/confirm'
 import BaseInput from '../components/BaseInput.vue'
 import BaseButton from '../components/BaseButton.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 function validEmail(email){
   return typeof email === 'string' && email.includes('@') && email.indexOf('@') > 0
 }
 
 const users = ref([])
+const loadingUsers = ref(false)
 const newUser = ref({ email: '', full_name: '', password: 'Test1234!' })
 const editing = ref(null)
 const toast = useToastStore()
@@ -151,7 +160,12 @@ const adminUsers = computed(() => users.value.filter(user => user.is_admin))
 const latestUserId = computed(() => users.value.reduce((latest, user) => Math.max(latest, user.id || 0), 0))
 
 async function load() {
-  users.value = await getUsers()
+  loadingUsers.value = true
+  try{
+    users.value = await getUsers()
+  }finally{
+    loadingUsers.value = false
+  }
 }
 
 async function create() {

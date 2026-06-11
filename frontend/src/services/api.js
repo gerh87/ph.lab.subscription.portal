@@ -103,10 +103,11 @@ export async function listCourseResources(courseId) {
   }catch(e){ return handleApiError(e, 'List course resources failed') }
 }
 
-export async function uploadCourseFile(courseId, file) {
+export async function uploadCourseFile(courseId, file, resourceType = 'public_resource') {
   try{
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('resource_type', resourceType)
     const resp = await api.post(`/courses/${courseId}/files`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

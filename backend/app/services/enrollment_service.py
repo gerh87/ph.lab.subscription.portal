@@ -32,6 +32,14 @@ class EnrollmentService:
             course = db.query(Course).filter(Course.id == enrollment_in.course_id).first()
             if not course:
                 return None
+            existing = db.query(Enrollment).filter(
+                Enrollment.course_id == enrollment_in.course_id,
+                Enrollment.subscriber_id == subscriber_id,
+                Enrollment.status.in_(["active", "pending_payment"]),
+            ).first()
+            if existing:
+                return existing
+
             capacity = int(course.max_students or 0)
             if capacity > 0:
                 active_count = db.query(Enrollment).filter(
@@ -40,7 +48,13 @@ class EnrollmentService:
                 ).count()
                 if active_count >= capacity:
                     return "full"
-            e = Enrollment(subscriber_id=subscriber_id, course_id=enrollment_in.course_id)
+            price = float(course.price or 0)
+            e = Enrollment(
+                subscriber_id=subscriber_id,
+                course_id=enrollment_in.course_id,
+                status="pending_payment" if price > 0 else "active",
+                payment_status="pending" if price > 0 else "paid",
+            )
             return EnrollmentRepository.create(db, e)
         finally:
             db.close()

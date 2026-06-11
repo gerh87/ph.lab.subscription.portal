@@ -11,6 +11,7 @@
       <div class="collapse navbar-collapse" :class="{show: open}">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <li class="nav-item"><router-link class="nav-link" to="/">Courses</router-link></li>
+          <li v-if="isAuthenticated" class="nav-item"><router-link class="nav-link" to="/my-courses">My courses</router-link></li>
           <li v-if="isAdmin" class="nav-item"><router-link class="nav-link" to="/admin/users">Users</router-link></li>
           <li v-if="isAdmin" class="nav-item"><router-link class="nav-link" to="/admin/courses">Course Admin</router-link></li>
         </ul>
