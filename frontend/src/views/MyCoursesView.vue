@@ -254,7 +254,13 @@ function courseInitials(title){
 
 function courseDateLabel(course){
   if(!course.scheduled_date) return 'Date to be confirmed'
-  return new Date(`${course.scheduled_date}T00:00:00`).toLocaleDateString()
+  const date = new Date(`${course.scheduled_date}T00:00:00`).toLocaleDateString()
+  return course.scheduled_time ? `${date} ${formatCourseTime(course.scheduled_time)}` : date
+}
+
+function formatCourseTime(value){
+  if(!value) return ''
+  return String(value).slice(0, 5)
 }
 
 function formatDate(value){

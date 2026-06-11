@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     MERCADOPAGO_ACCESS_TOKEN: str | None = os.getenv("MERCADOPAGO_ACCESS_TOKEN")
     MERCADOPAGO_PUBLIC_KEY: str | None = os.getenv("MERCADOPAGO_PUBLIC_KEY")
     MERCADOPAGO_NOTIFICATION_URL: str | None = os.getenv("MERCADOPAGO_NOTIFICATION_URL")
+    MERCADOPAGO_WEBHOOK_SECRET: str | None = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
 
     S3_ENDPOINT: str | None = os.getenv("S3_ENDPOINT")
     S3_ACCESS_KEY: str | None = os.getenv("S3_ACCESS_KEY")

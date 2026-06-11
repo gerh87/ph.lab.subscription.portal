@@ -108,11 +108,38 @@
               Join Zoom class
             </button>
             <button
-              v-if="!isEnrolled(course.id)"
+              v-if="pendingEnrollment(course.id)"
+              class="btn btn-outline-secondary"
+              type="button"
+              :disabled="pendingEnrollment(course.id).payment_method !== 'mercadopago'"
+              @click="resumeMercadoPago(course)"
+            >
+              {{ pendingPaymentLabel(course.id) }}
+            </button>
+            <template v-else-if="!isEnrolled(course.id) && Number(course.price || 0) > 0">
+              <button
+                class="btn btn-primary"
+                type="button"
+                :disabled="isFull(course)"
+                @click="subscribe(course, 'mercadopago')"
+              >
+                {{ isFull(course) ? 'Full' : 'Pay with Mercado Pago' }}
+              </button>
+              <button
+                class="btn btn-outline-secondary"
+                type="button"
+                :disabled="isFull(course)"
+                @click="subscribe(course, 'manual')"
+              >
+                Transfer payment
+              </button>
+            </template>
+            <button
+              v-else-if="!isEnrolled(course.id)"
               class="btn btn-primary"
               type="button"
               :disabled="isFull(course)"
-              @click="subscribe(course)"
+              @click="subscribe(course, 'free')"
             >
               {{ isFull(course) ? 'Full' : 'Subscribe' }}
             </button>
@@ -184,11 +211,38 @@
               Join Zoom class
             </button>
             <button
-              v-if="!isEnrolled(selectedCourse.id)"
+              v-if="pendingEnrollment(selectedCourse.id)"
+              class="btn btn-outline-secondary"
+              type="button"
+              :disabled="pendingEnrollment(selectedCourse.id).payment_method !== 'mercadopago'"
+              @click="resumeMercadoPago(selectedCourse)"
+            >
+              {{ pendingPaymentLabel(selectedCourse.id) }}
+            </button>
+            <template v-else-if="!isEnrolled(selectedCourse.id) && Number(selectedCourse.price || 0) > 0">
+              <button
+                class="btn btn-primary"
+                type="button"
+                :disabled="isFull(selectedCourse)"
+                @click="subscribe(selectedCourse, 'mercadopago')"
+              >
+                {{ isFull(selectedCourse) ? 'Full' : 'Pay with Mercado Pago' }}
+              </button>
+              <button
+                class="btn btn-outline-secondary"
+                type="button"
+                :disabled="isFull(selectedCourse)"
+                @click="subscribe(selectedCourse, 'manual')"
+              >
+                Transfer payment
+              </button>
+            </template>
+            <button
+              v-else-if="!isEnrolled(selectedCourse.id)"
               class="btn btn-primary"
               type="button"
               :disabled="isFull(selectedCourse)"
-              @click="subscribe(selectedCourse)"
+              @click="subscribe(selectedCourse, 'free')"
             >
               {{ isFull(selectedCourse) ? 'Full' : 'Subscribe' }}
             </button>
@@ -312,7 +366,18 @@ function isEnrolled(courseId){
   return enrollments.value.find(enrollment => enrollment.course_id === courseId && enrollment.status === 'active')
 }
 
-async function subscribe(course){
+function pendingEnrollment(courseId){
+  return enrollments.value.find(enrollment => enrollment.course_id === courseId && enrollment.status === 'pending_payment')
+}
+
+function pendingPaymentLabel(courseId){
+  const enrollment = pendingEnrollment(courseId)
+  if(!enrollment) return 'Payment pending'
+  if(enrollment.payment_method === 'mercadopago') return 'Resume payment'
+  return 'Transfer pending approval'
+}
+
+async function subscribe(course, paymentMethod = 'manual'){
   if(!isAuthenticated.value){
     toast.error('Login or create an account first')
     await login()
@@ -325,22 +390,42 @@ async function subscribe(course){
   }
 
   try{
-    const enrollment = await createEnrollment({ subscriber_id: Number(subscriberId.value), course_id: course.id })
+    const method = Number(course.price || 0) > 0 ? paymentMethod : 'free'
+    const enrollment = await createEnrollment({
+      subscriber_id: Number(subscriberId.value),
+      course_id: course.id,
+      payment_method: method === 'free' ? null : method,
+    })
     await loadEnrollments()
     courses.value = await getCourses()
     await loadCoursePublicResources()
-    if(Number(course.price || 0) > 0){
+    if(Number(course.price || 0) > 0 && method === 'mercadopago'){
       const preference = await createPreference({ enrollment_id: enrollment.id })
       if(preference?.init_point){
         toast.success('Redirecting to payment')
         window.location.href = preference.init_point
         return
       }
+    } else if(Number(course.price || 0) > 0 && method === 'manual') {
+      toast.success('Transfer request created. An administrator will confirm your payment.')
+      return
     } else {
       await createPreference({ enrollment_id: enrollment.id })
       await loadEnrollments()
     }
     toast.success('Subscription confirmed')
+  }catch(e){ /* api service already reports the error */ }
+}
+
+async function resumeMercadoPago(course){
+  const enrollment = pendingEnrollment(course.id)
+  if(!enrollment || enrollment.payment_method !== 'mercadopago') return
+  try{
+    const preference = await createPreference({ enrollment_id: enrollment.id })
+    if(preference?.init_point){
+      toast.success('Redirecting to payment')
+      window.location.href = preference.init_point
+    }
   }catch(e){ /* api service already reports the error */ }
 }
 
@@ -379,7 +464,13 @@ function capacityLabel(course){
 
 function courseDateLabel(course){
   if(!course.scheduled_date) return 'Date to be confirmed'
-  return new Date(`${course.scheduled_date}T00:00:00`).toLocaleDateString()
+  const date = new Date(`${course.scheduled_date}T00:00:00`).toLocaleDateString()
+  return course.scheduled_time ? `${date} ${formatCourseTime(course.scheduled_time)}` : date
+}
+
+function formatCourseTime(value){
+  if(!value) return ''
+  return String(value).slice(0, 5)
 }
 
 function todayKey(){
@@ -429,6 +520,7 @@ function isFull(course){
 
 function courseCatalogStatusLabel(course){
   if(isEnrolled(course.id)) return 'Subscribed'
+  if(pendingEnrollment(course.id)) return 'Payment pending'
   if(isFull(course)) return 'Full'
   if(!course.scheduled_date) return 'No date yet'
   if(course.scheduled_date === todayKey()) return 'Today'
@@ -437,6 +529,7 @@ function courseCatalogStatusLabel(course){
 
 function courseCatalogStatusClass(course){
   if(isEnrolled(course.id)) return 'enrolled'
+  if(pendingEnrollment(course.id)) return 'neutral'
   if(isFull(course)) return 'danger'
   if(!course.scheduled_date) return 'neutral'
   if(course.scheduled_date === todayKey()) return 'today'
