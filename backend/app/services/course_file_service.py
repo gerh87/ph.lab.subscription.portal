@@ -14,6 +14,8 @@ from app.repositories.subscriber_repository import SubscriberRepository
 
 
 class CourseFileService:
+    ALLOWED_RESOURCE_TYPES = {"public_resource", "private_material"}
+
     @staticmethod
     def _clean_filename(filename: str | None) -> str:
         clean_name = (filename or "course-file").replace("\\", "/").split("/")[-1].strip()
@@ -24,6 +26,9 @@ class CourseFileService:
         db = SessionLocal()
         storage_key = None
         try:
+            if resource_type not in CourseFileService.ALLOWED_RESOURCE_TYPES:
+                return "invalid_resource_type"
+
             course = db.query(Course).filter(Course.id == course_id).first()
             if not course:
                 return None

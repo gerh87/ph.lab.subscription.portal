@@ -55,51 +55,49 @@
           <p class="eyebrow">Course catalog</p>
           <h2>Available courses</h2>
         </div>
-        <span class="catalog-count">{{ courses.length }} course{{ courses.length === 1 ? '' : 's' }}</span>
+        <span class="catalog-count">{{ availableCourses.length }} course{{ availableCourses.length === 1 ? '' : 's' }}</span>
       </div>
 
-      <div v-if="courses.length === 0" class="empty-state">
+      <LoadingState
+        v-if="loadingCatalog"
+        title="Loading courses"
+        message="Fetching the latest available courses."
+      />
+
+      <div v-else-if="availableCourses.length === 0" class="empty-state">
         <strong>No courses available</strong>
         <span>New courses will appear here as soon as they are published.</span>
       </div>
 
       <div v-else class="front-course-grid">
-        <article v-for="course in courses" :key="course.id" class="front-course-card">
+        <article v-for="course in availableCourses" :key="course.id" class="front-course-card">
           <div class="front-course-media">
-            <span>{{ courseInitials(course.title) }}</span>
+            <div class="front-course-media-heading">
+              <h3>{{ course.title }}</h3>
+              <span class="status-badge" :class="courseCatalogStatusClass(course)">{{ courseCatalogStatusLabel(course) }}</span>
+            </div>
           </div>
           <div class="front-course-content">
-            <div class="front-course-title">
-              <h3>{{ course.title }}</h3>
-              <span v-if="isEnrolled(course.id)" class="status-badge enrolled">Subscribed</span>
-            </div>
-            <p>{{ course.description || 'Course details will be available soon.' }}</p>
             <div class="front-course-meta">
               <strong>${{ formatPrice(course.price) }}</strong>
               <span>{{ courseDateLabel(course) }}</span>
-              <span>{{ capacityLabel(course) }}</span>
-            </div>
-            <div v-if="courseResources(course.id).length" class="course-card-resources">
-              <strong>Program and guides</strong>
-              <button
-                v-for="file in courseResources(course.id)"
-                :key="file.id"
-                class="btn btn-sm btn-outline-secondary"
-                type="button"
-                @click="downloadResource(course, file)"
-              >
-                {{ file.original_filename }}
-              </button>
             </div>
           </div>
           <div class="front-course-actions">
             <button
-              v-if="isEnrolled(course.id)"
               class="btn btn-outline-secondary"
               type="button"
-              @click="toggleCourseMaterials(course)"
+              @click="openCourseDetails(course)"
             >
-              Materials
+              Details
+            </button>
+            <button
+              v-if="isEnrolled(course.id)"
+              class="btn btn-primary"
+              type="button"
+              @click="$router.push(`/my-courses/${course.id}`)"
+            >
+              Open course
             </button>
             <button
               v-if="canJoinVirtualClass(course)"
@@ -118,40 +116,104 @@
             >
               {{ isFull(course) ? 'Full' : 'Subscribe' }}
             </button>
-            <button
-              v-else
-              class="btn btn-outline-danger"
-              type="button"
-              @click="unsubscribe(isEnrolled(course.id).id)"
-            >
-              Cancel subscription
-            </button>
-          </div>
-          <div v-if="openMaterialsCourseId === course.id" class="course-materials">
-            <strong>Course materials</strong>
-            <span v-if="materialsLoadingCourseId === course.id">Loading files</span>
-            <span v-else-if="courseMaterials(course.id).length === 0">No files available yet</span>
-            <button
-              v-for="file in courseMaterials(course.id)"
-              :key="file.id"
-              class="btn btn-sm btn-outline-secondary"
-              type="button"
-              @click="downloadMaterial(course, file)"
-            >
-              {{ file.original_filename }}
-            </button>
           </div>
         </article>
       </div>
     </section>
+
+    <div v-if="selectedCourse" class="modal fade show d-block management-modal" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="eyebrow">Course detail</p>
+              <h2 class="modal-title">{{ selectedCourse.title }}</h2>
+            </div>
+            <button type="button" class="btn-close" aria-label="Close" @click="closeCourseDetails"></button>
+          </div>
+          <div class="modal-body">
+            <section class="course-detail-modal-grid">
+              <div class="detail-panel compact-detail-panel">
+                <p class="eyebrow">Overview</p>
+                <p>{{ selectedCourse.description || 'Course details will be available soon.' }}</p>
+                <div class="course-detail-facts">
+                  <span>${{ formatPrice(selectedCourse.price) }}</span>
+                  <span>{{ courseDateLabel(selectedCourse) }}</span>
+                  <span>{{ capacityLabel(selectedCourse) }}</span>
+                </div>
+              </div>
+
+              <div class="detail-panel compact-detail-panel">
+                <p class="eyebrow">Programs and guides</p>
+                <div v-if="courseResources(selectedCourse.id).length === 0" class="empty-state compact">
+                  <strong>No public resources yet</strong>
+                  <span>Programs or guides will appear here when published.</span>
+                </div>
+                <div v-else class="course-file-list">
+                  <button
+                    v-for="file in courseResources(selectedCourse.id)"
+                    :key="file.id"
+                    class="course-file-row"
+                    type="button"
+                    @click="downloadResource(selectedCourse, file)"
+                  >
+                    <span>
+                      <strong>{{ file.original_filename }}</strong>
+                      <small>{{ file.content_type || 'File' }} · {{ formatFileSize(file.size_bytes) }}</small>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="modal-footer course-detail-modal-actions">
+            <button
+              v-if="isEnrolled(selectedCourse.id)"
+              class="btn btn-outline-danger"
+              type="button"
+              @click="unsubscribe(isEnrolled(selectedCourse.id).id)"
+            >
+              Cancel subscription
+            </button>
+            <button
+              v-if="canJoinVirtualClass(selectedCourse)"
+              class="btn btn-success"
+              type="button"
+              @click="joinVirtualClass(selectedCourse)"
+            >
+              Join Zoom class
+            </button>
+            <button
+              v-if="!isEnrolled(selectedCourse.id)"
+              class="btn btn-primary"
+              type="button"
+              :disabled="isFull(selectedCourse)"
+              @click="subscribe(selectedCourse)"
+            >
+              {{ isFull(selectedCourse) ? 'Full' : 'Subscribe' }}
+            </button>
+            <button
+              v-else
+              class="btn btn-primary"
+              type="button"
+              @click="$router.push(`/my-courses/${selectedCourse.id}`)"
+            >
+              Open course
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-if="selectedCourse" class="modal-backdrop fade show"></div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAuth0 } from '@auth0/auth0-vue'
-import { cancelEnrollment, createEnrollment, createSubscriber as apiCreateSubscriber, downloadCourseFile, downloadCourseResource, getCourses, getEnrollmentsBySubscriber, getVirtualAccess, listCourseFiles, listCourseResources, syncExternalUser } from '../services/api'
+import { cancelEnrollment, createEnrollment, createPreference, createSubscriber as apiCreateSubscriber, downloadCourseResource, getCourses, getEnrollmentsBySubscriber, getVirtualAccess, listCourseResources, syncExternalUser } from '../services/api'
 import { useToastStore } from '../stores/toast'
+import LoadingState from '../components/LoadingState.vue'
 import headerMainUrl from '../assets/banners/header_main_clean.png'
 
 const toast = useToastStore()
@@ -160,15 +222,18 @@ const courses = ref([])
 const enrollments = ref([])
 const appUser = ref(null)
 const subscriberId = ref(null)
-const courseFiles = ref({})
 const coursePublicResources = ref({})
-const openMaterialsCourseId = ref(null)
-const materialsLoadingCourseId = ref(null)
+const selectedCourse = ref(null)
+const loadingCatalog = ref(false)
 const syncInFlight = ref(false)
 const syncError = ref('')
 const heroBackground = `linear-gradient(90deg, rgba(20,33,61,0.9) 0%, rgba(20,33,61,0.55) 34%, rgba(20,33,61,0.18) 100%), linear-gradient(rgba(238,242,246,0.22), rgba(238,242,246,0.22)), url(${headerMainUrl})`
 
 const activeEnrollments = computed(() => enrollments.value.filter(enrollment => enrollment.status === 'active'))
+const availableCourses = computed(() => courses.value
+  .filter(course => !isPastCourse(course))
+  .sort((a, b) => courseSortKey(a).localeCompare(courseSortKey(b)))
+)
 const profileStatus = computed(() => {
   if(syncError.value) return syncError.value
   if(appUser.value) return `App user #${appUser.value.id}`
@@ -186,9 +251,14 @@ const userInitials = computed(() => {
 })
 
 onMounted(async () => {
-  courses.value = await getCourses()
-  await loadCoursePublicResources()
-  await syncSubscriber()
+  loadingCatalog.value = true
+  try{
+    courses.value = await getCourses()
+    await loadCoursePublicResources()
+    await syncSubscriber()
+  }finally{
+    loadingCatalog.value = false
+  }
 })
 
 watch([isLoading, isAuthenticated, user, idTokenClaims], syncSubscriber, { immediate: true })
@@ -255,11 +325,22 @@ async function subscribe(course){
   }
 
   try{
-    await createEnrollment({ subscriber_id: Number(subscriberId.value), course_id: course.id })
+    const enrollment = await createEnrollment({ subscriber_id: Number(subscriberId.value), course_id: course.id })
     await loadEnrollments()
     courses.value = await getCourses()
     await loadCoursePublicResources()
-    toast.success('Subscription request created. Payment will be confirmed manually.')
+    if(Number(course.price || 0) > 0){
+      const preference = await createPreference({ enrollment_id: enrollment.id })
+      if(preference?.init_point){
+        toast.success('Redirecting to payment')
+        window.location.href = preference.init_point
+        return
+      }
+    } else {
+      await createPreference({ enrollment_id: enrollment.id })
+      await loadEnrollments()
+    }
+    toast.success('Subscription confirmed')
   }catch(e){ /* api service already reports the error */ }
 }
 
@@ -270,7 +351,9 @@ async function unsubscribe(enrollmentId){
     await loadEnrollments()
     courses.value = await getCourses()
     await loadCoursePublicResources()
-    openMaterialsCourseId.value = null
+    if(selectedCourse.value){
+      selectedCourse.value = courses.value.find(course => course.id === selectedCourse.value.id) || null
+    }
   }catch(e){ /* api service already reports the error */ }
 }
 
@@ -317,41 +400,23 @@ async function joinVirtualClass(course){
   window.open(access.zoom_url, '_blank', 'noopener,noreferrer')
 }
 
-function courseMaterials(courseId){
-  return courseFiles.value[courseId] || []
-}
-
 function courseResources(courseId){
   return coursePublicResources.value[courseId] || []
 }
 
+function openCourseDetails(course){
+  selectedCourse.value = course
+}
+
+function closeCourseDetails(){
+  selectedCourse.value = null
+}
+
 async function loadCoursePublicResources(){
   const entries = await Promise.all(
-    courses.value.map(async course => [course.id, await listCourseResources(course.id)])
+    availableCourses.value.map(async course => [course.id, await listCourseResources(course.id)])
   )
   coursePublicResources.value = Object.fromEntries(entries)
-}
-
-async function toggleCourseMaterials(course){
-  if(openMaterialsCourseId.value === course.id){
-    openMaterialsCourseId.value = null
-    return
-  }
-  openMaterialsCourseId.value = course.id
-  if(courseFiles.value[course.id]) return
-  materialsLoadingCourseId.value = course.id
-  try{
-    courseFiles.value = {
-      ...courseFiles.value,
-      [course.id]: await listCourseFiles(course.id),
-    }
-  }finally{
-    materialsLoadingCourseId.value = null
-  }
-}
-
-async function downloadMaterial(course, file){
-  await downloadCourseFile(course.id, file)
 }
 
 async function downloadResource(course, file){
@@ -360,5 +425,36 @@ async function downloadResource(course, file){
 
 function isFull(course){
   return Number(course.max_students || 0) > 0 && Number(course.available_seats ?? course.max_students) <= 0
+}
+
+function courseCatalogStatusLabel(course){
+  if(isEnrolled(course.id)) return 'Subscribed'
+  if(isFull(course)) return 'Full'
+  if(!course.scheduled_date) return 'No date yet'
+  if(course.scheduled_date === todayKey()) return 'Today'
+  return 'Upcoming'
+}
+
+function courseCatalogStatusClass(course){
+  if(isEnrolled(course.id)) return 'enrolled'
+  if(isFull(course)) return 'danger'
+  if(!course.scheduled_date) return 'neutral'
+  if(course.scheduled_date === todayKey()) return 'today'
+  return 'upcoming'
+}
+
+function courseSortKey(course){
+  return course.scheduled_date || '9999-12-31'
+}
+
+function formatFileSize(bytes){
+  const size = Number(bytes || 0)
+  if(size < 1024) return `${size} B`
+  if(size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isPastCourse(course){
+  return Boolean(course.scheduled_date && course.scheduled_date < todayKey())
 }
 </script>

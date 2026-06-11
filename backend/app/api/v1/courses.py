@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from typing import List
 from urllib.parse import quote
@@ -29,10 +29,17 @@ async def list_admin_courses(_admin=Depends(require_admin)):
 
 
 @router.post("/{course_id}/files", response_model=CourseFileRead, status_code=status.HTTP_201_CREATED)
-async def upload_course_file(course_id: int, file: UploadFile = File(...), admin=Depends(require_admin)):
-    created = await CourseFileService.upload(course_id, file, admin)
+async def upload_course_file(
+    course_id: int,
+    file: UploadFile = File(...),
+    resource_type: str = Form("public_resource"),
+    admin=Depends(require_admin),
+):
+    created = await CourseFileService.upload(course_id, file, admin, resource_type)
     if not created:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if created == "invalid_resource_type":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid course file type")
     return created
 
 

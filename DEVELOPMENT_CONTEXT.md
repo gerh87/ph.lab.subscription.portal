@@ -29,8 +29,8 @@ El sistema tiene dos frentes:
 Servicios en `docker-compose.yml`:
 
 - `sqlserver`: SQL Server en puerto `1433`
-- `backend`: FastAPI en puerto `8000`
-- `frontend`: Vite en puerto interno `3000`, publicado en host como `3001`
+- `backend`: FastAPI en puerto interno `8000`, publicado en host como `8400`
+- `frontend`: Vite en puerto interno `3000`, publicado en host como `8401`
 - `nginx`: proxy en puerto `80`
 
 La app principal se abre por:
@@ -42,10 +42,14 @@ http://localhost
 El frontend directo queda en:
 
 ```text
-http://localhost:3001
+http://localhost:8401
 ```
 
-Nota: el puerto host `3000` estaba ocupado por un proceso `node` local, por eso el compose fue ajustado a `3001:3000`.
+La API directa queda en:
+
+```text
+http://localhost:8400
+```
 
 Comandos utiles:
 
@@ -376,19 +380,12 @@ Solucion:
 docker compose restart nginx
 ```
 
-### Puerto 3000 Ocupado
+### Puertos Directos
 
-Causa vista:
+Puertos host definidos:
 
-- proceso `node` local ocupaba host port `3000`
-
-Solucion aplicada:
-
-```yaml
-frontend:
-  ports:
-    - "3001:3000"
-```
+- API: `8400:8000`
+- Frontend: `8401:3000`
 
 ## Estado Git
 

@@ -39,7 +39,14 @@
         </div>
       </div>
 
-      <div v-if="courses.length === 0" class="empty-state compact">
+      <LoadingState
+        v-if="loadingCourses"
+        compact
+        title="Loading courses"
+        message="Fetching catalog, subscriptions, and subscribers."
+      />
+
+      <div v-else-if="courses.length === 0" class="empty-state compact">
         <strong>No courses found</strong>
         <span>Create the first course to make it available in the subscriber catalog.</span>
       </div>
@@ -115,16 +122,29 @@
       <section class="course-files-panel">
         <div class="panel-heading compact-heading">
           <div>
-            <p class="eyebrow">Public resources</p>
-            <h3>Programs and guides</h3>
+            <p class="eyebrow">Course files</p>
+            <h3>Resources and materials</h3>
           </div>
-          <label class="file-upload-control compact-upload">
-            <input type="file" @change="uploadFileForSelectedCourse" />
-            <span>Upload file</span>
-          </label>
+          <div class="file-upload-actions">
+            <label class="file-upload-control compact-upload">
+              <input type="file" @change="uploadFileForSelectedCourse($event, 'public_resource')" />
+              <span>Upload public</span>
+            </label>
+            <label class="file-upload-control compact-upload">
+              <input type="file" @change="uploadFileForSelectedCourse($event, 'private_material')" />
+              <span>Upload private</span>
+            </label>
+          </div>
         </div>
 
-        <div v-if="selectedCourseFiles.length === 0" class="empty-state compact">
+        <LoadingState
+          v-if="loadingCourseFiles"
+          compact
+          title="Loading files"
+          message="Fetching course attachments."
+        />
+
+        <div v-else-if="selectedCourseFiles.length === 0" class="empty-state compact">
           <strong>No files uploaded</strong>
           <span>Attach programs, brochures, guides, or public course information.</span>
         </div>
@@ -134,6 +154,7 @@
             <thead>
               <tr>
                 <th>File</th>
+                <th>Visibility</th>
                 <th>Type</th>
                 <th>Size</th>
                 <th>Uploaded</th>
@@ -145,6 +166,11 @@
                 <td>
                   <strong class="course-name">{{ file.original_filename }}</strong>
                   <span class="file-guid">{{ file.guid }}</span>
+                </td>
+                <td>
+                  <span class="role-badge" :class="{ admin: file.resource_type === 'private_material' }">
+                    {{ fileTypeLabel(file) }}
+                  </span>
                 </td>
                 <td>{{ file.content_type || '-' }}</td>
                 <td>{{ formatFileSize(file.size_bytes) }}</td>
@@ -308,15 +334,31 @@
           </div>
           <form @submit.prevent="saveEdit">
             <div class="modal-body">
-              <div class="edit-modal-form">
+              <section class="detail-tabs edit-tabs" aria-label="Course edit sections">
+                <button
+                  v-for="tab in editTabs"
+                  :key="tab.id"
+                  type="button"
+                  class="detail-tab"
+                  :class="{ active: editTab === tab.id }"
+                  @click="editTab = tab.id"
+                >
+                  {{ tab.label }}
+                </button>
+              </section>
+
+              <div v-if="editTab === 'content'" class="edit-modal-form">
                 <label>
                   <span>Title</span>
                   <BaseInput v-model="editing.title" />
                 </label>
                 <label>
                   <span>Description</span>
-                  <textarea v-model="editing.description" class="form-control" rows="4"></textarea>
+                  <textarea v-model="editing.description" class="form-control" rows="5"></textarea>
                 </label>
+              </div>
+
+              <div v-else-if="editTab === 'schedule'" class="edit-modal-form">
                 <label>
                   <span>Course date</span>
                   <BaseInput v-model="editing.scheduled_date" type="date" />
@@ -334,6 +376,50 @@
                   <BaseInput v-model="editing.zoom_url" type="url" placeholder="https://zoom.us/j/..." />
                 </label>
               </div>
+
+              <section v-else class="edit-files-panel">
+                <div class="panel-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">Course files</p>
+                    <h3>Attach resources and private materials</h3>
+                  </div>
+                  <div class="file-upload-actions">
+                    <label class="file-upload-control compact-upload">
+                      <input type="file" @change="uploadFileForEditingCourse($event, 'public_resource')" />
+                      <span>Upload public</span>
+                    </label>
+                    <label class="file-upload-control compact-upload">
+                      <input type="file" @change="uploadFileForEditingCourse($event, 'private_material')" />
+                      <span>Upload private</span>
+                    </label>
+                  </div>
+                </div>
+
+                <LoadingState
+                  v-if="loadingEditingCourseFiles"
+                  compact
+                  title="Loading files"
+                  message="Fetching course attachments."
+                />
+
+                <div v-else-if="editingCourseFiles.length === 0" class="empty-state compact">
+                  <strong>No files uploaded</strong>
+                  <span>Attach public resources or private materials for subscribed students.</span>
+                </div>
+
+                <div v-else class="edit-file-list">
+                  <div v-for="file in editingCourseFiles" :key="file.id" class="edit-file-row">
+                    <div>
+                      <strong>{{ file.original_filename }}</strong>
+                      <span>{{ fileTypeLabel(file) }} · {{ formatFileSize(file.size_bytes) }}</span>
+                    </div>
+                    <div class="row-actions">
+                      <BaseButton size="sm" variant="outline-secondary" @click="downloadEditingCourseMaterial(file)">Download</BaseButton>
+                      <BaseButton size="sm" variant="outline-danger" @click="deleteEditingCourseMaterial(file)">Delete</BaseButton>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
             <div class="modal-footer">
               <BaseButton variant="outline-secondary" @click="cancelEdit">Cancel</BaseButton>
@@ -354,6 +440,7 @@ import { useToastStore } from '../stores/toast'
 import { useConfirmStore } from '../stores/confirm'
 import BaseInput from '../components/BaseInput.vue'
 import BaseButton from '../components/BaseButton.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 function validCourse(payload){
   if(!payload.title || String(payload.title).trim().length === 0) return 'Title is required'
@@ -368,12 +455,16 @@ const courses = ref([])
 const enrollments = ref([])
 const subscribers = ref([])
 const courseFiles = ref({})
+const loadingCourses = ref(false)
+const loadingCourseFiles = ref(false)
+const loadingEditingCourseFiles = ref(false)
 const form = ref({ title: '', description: '', scheduled_date: '', zoom_url: '', price: 0, max_students: 0 })
 const createModalOpen = ref(false)
 const createStep = ref(1)
 const creatingCourse = ref(false)
 const pendingCourseFiles = ref([])
 const editing = ref(null)
+const editTab = ref('content')
 const selectedCourseId = ref(null)
 const toast = useToastStore()
 const confirmStore = useConfirmStore()
@@ -381,6 +472,11 @@ const wizardSteps = [
   { id: 1, label: 'Content' },
   { id: 2, label: 'Schedule' },
   { id: 3, label: 'Files' },
+]
+const editTabs = [
+  { id: 'content', label: 'Content' },
+  { id: 'schedule', label: 'Schedule' },
+  { id: 'files', label: 'Files' },
 ]
 
 const totalCapacityLabel = computed(() => {
@@ -398,22 +494,28 @@ const availableSeatsLabel = computed(() => {
 const activeEnrollmentCount = computed(() => enrollments.value.filter(enrollment => enrollment.status === 'active').length)
 const selectedCourse = computed(() => courses.value.find(course => course.id === selectedCourseId.value))
 const selectedCourseFiles = computed(() => selectedCourseId.value ? (courseFiles.value[selectedCourseId.value] || []) : [])
+const editingCourseFiles = computed(() => editing.value?.id ? (courseFiles.value[editing.value.id] || []) : [])
 const selectedCourseEnrollments = computed(() => {
   if(!selectedCourse.value) return []
   return enrollments.value.filter(enrollment => enrollment.course_id === selectedCourse.value.id && enrollment.status === 'active')
 })
 
 async function load() {
-  const [courseList, enrollmentList, subscriberList] = await Promise.all([
-    getAdminCourses(),
-    listEnrollments(),
-    listSubscribers(),
-  ])
-  courses.value = courseList
-  enrollments.value = enrollmentList
-  subscribers.value = subscriberList
-  if(selectedCourseId.value && !courses.value.find(course => course.id === selectedCourseId.value)){
-    selectedCourseId.value = null
+  loadingCourses.value = true
+  try{
+    const [courseList, enrollmentList, subscriberList] = await Promise.all([
+      getAdminCourses(),
+      listEnrollments(),
+      listSubscribers(),
+    ])
+    courses.value = courseList
+    enrollments.value = enrollmentList
+    subscribers.value = subscriberList
+    if(selectedCourseId.value && !courses.value.find(course => course.id === selectedCourseId.value)){
+      selectedCourseId.value = null
+    }
+  }finally{
+    loadingCourses.value = false
   }
 }
 
@@ -512,6 +614,8 @@ function removeQueuedFile(index){
 
 function startEdit(c) {
   editing.value = { ...c }
+  editTab.value = 'content'
+  loadEditingCourseFiles(c.id)
 }
 
 async function saveEdit() {
@@ -546,20 +650,51 @@ function selectCourse(course){
 }
 
 async function loadCourseFiles(courseId){
-  courseFiles.value = {
-    ...courseFiles.value,
-    [courseId]: await listCourseFiles(courseId),
+  loadingCourseFiles.value = true
+  try{
+    courseFiles.value = {
+      ...courseFiles.value,
+      [courseId]: await listCourseFiles(courseId),
+    }
+  }finally{
+    loadingCourseFiles.value = false
   }
 }
 
-async function uploadFileForSelectedCourse(event){
+async function loadEditingCourseFiles(courseId){
+  loadingEditingCourseFiles.value = true
+  try{
+    courseFiles.value = {
+      ...courseFiles.value,
+      [courseId]: await listCourseFiles(courseId),
+    }
+  }finally{
+    loadingEditingCourseFiles.value = false
+  }
+}
+
+async function uploadFileForSelectedCourse(event, resourceType = 'public_resource'){
   const file = event.target.files?.[0]
   event.target.value = ''
   if(!file || !selectedCourseId.value) return
   try{
-    await uploadCourseFile(selectedCourseId.value, file)
+    await uploadCourseFile(selectedCourseId.value, file, resourceType)
     toast.success('Course file uploaded')
     await loadCourseFiles(selectedCourseId.value)
+  } catch(e){
+    toast.error('Failed to upload file: '+(e?.response?.data?.detail||e))
+  }
+}
+
+async function uploadFileForEditingCourse(event, resourceType = 'public_resource'){
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if(!file || !editing.value?.id) return
+  try{
+    await uploadCourseFile(editing.value.id, file, resourceType)
+    toast.success('Course file uploaded')
+    await loadEditingCourseFiles(editing.value.id)
+    if(selectedCourseId.value === editing.value.id) await loadCourseFiles(editing.value.id)
   } catch(e){
     toast.error('Failed to upload file: '+(e?.response?.data?.detail||e))
   }
@@ -577,6 +712,21 @@ async function deleteCourseMaterial(file){
   await deleteCourseFile(selectedCourseId.value, file.id)
   toast.success('Course file deleted')
   await loadCourseFiles(selectedCourseId.value)
+}
+
+async function downloadEditingCourseMaterial(file){
+  if(!editing.value?.id) return
+  await downloadCourseFile(editing.value.id, file)
+}
+
+async function deleteEditingCourseMaterial(file){
+  if(!editing.value?.id) return
+  const ok = await confirmStore.show('Delete file?')
+  if(!ok) return
+  await deleteCourseFile(editing.value.id, file.id)
+  toast.success('Course file deleted')
+  await loadEditingCourseFiles(editing.value.id)
+  if(selectedCourseId.value === editing.value.id) await loadCourseFiles(editing.value.id)
 }
 
 function formatPrice(price){
@@ -613,6 +763,10 @@ function formatFileSize(bytes){
   if(size < 1024) return `${size} B`
   if(size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fileTypeLabel(file){
+  return file.resource_type === 'private_material' ? 'Private material' : 'Public resource'
 }
 
 onMounted(load)

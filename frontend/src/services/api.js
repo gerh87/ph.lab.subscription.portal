@@ -56,7 +56,7 @@ export const syncAuth0User = syncExternalUser
 
 export async function getCourses() {
   try{
-    const resp = await api.get('/courses')
+    const resp = await api.get('/courses/')
     return resp.data
   }catch(e){ return handleApiError(e, 'Get courses failed') }
 }
@@ -70,7 +70,7 @@ export async function getAdminCourses() {
 
 export async function createCourse(payload) {
   try{
-    const resp = await api.post('/courses', payload)
+    const resp = await api.post('/courses/', payload)
     return resp.data
   }catch(e){ return handleApiError(e, 'Create course failed') }
 }
@@ -103,10 +103,11 @@ export async function listCourseResources(courseId) {
   }catch(e){ return handleApiError(e, 'List course resources failed') }
 }
 
-export async function uploadCourseFile(courseId, file) {
+export async function uploadCourseFile(courseId, file, resourceType = 'public_resource') {
   try{
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('resource_type', resourceType)
     const resp = await api.post(`/courses/${courseId}/files`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
@@ -155,14 +156,14 @@ export async function downloadCourseResource(courseId, file) {
 
 export async function getUsers() {
   try{
-    const resp = await api.get('/users')
+    const resp = await api.get('/users/')
     return resp.data
   }catch(e){ return handleApiError(e, 'Get users failed') }
 }
 
 export async function createUser(payload) {
   try{
-    const resp = await api.post('/users', payload)
+    const resp = await api.post('/users/', payload)
     return resp.data
   }catch(e){ return handleApiError(e, 'Create user failed') }
 }
@@ -186,14 +187,14 @@ export default api
 // Subscribers
 export async function createSubscriber(payload){
   try{
-    const resp = await api.post('/subscribers', payload)
+    const resp = await api.post('/subscribers/', payload)
     return resp.data
   }catch(e){ return handleApiError(e, 'Create subscriber failed') }
 }
 
 export async function listSubscribers(){
   try{
-    const resp = await api.get('/subscribers')
+    const resp = await api.get('/subscribers/')
     return resp.data
   }catch(e){ return handleApiError(e, 'List subscribers failed') }
 }
@@ -201,7 +202,7 @@ export async function listSubscribers(){
 // Enrollments / subscriptions
 export async function createEnrollment(payload){
   try{
-    const resp = await api.post('/enrollments', payload)
+    const resp = await api.post('/enrollments/', payload)
     return resp.data
   }catch(e){ return handleApiError(e, 'Create enrollment failed') }
 }
@@ -215,7 +216,7 @@ export async function getEnrollmentsBySubscriber(subscriber_id){
 
 export async function listEnrollments(){
   try{
-    const resp = await api.get('/enrollments')
+    const resp = await api.get('/enrollments/')
     return resp.data
   }catch(e){ return handleApiError(e, 'List enrollments failed') }
 }

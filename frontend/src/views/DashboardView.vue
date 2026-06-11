@@ -57,7 +57,13 @@
         <button class="btn btn-sm btn-outline-secondary" @click="fetchDevToken">Dev token</button>
       </div>
 
-      <div v-if="courses.length === 0" class="empty-state">
+      <LoadingState
+        v-if="loadingDashboard"
+        title="Loading courses"
+        message="Fetching courses and active enrollments."
+      />
+
+      <div v-else-if="courses.length === 0" class="empty-state">
         <strong>No courses available</strong>
         <span>Create courses from the admin area to publish them here.</span>
       </div>
@@ -99,9 +105,11 @@ import { useRouter } from 'vue-router'
 import { useToastStore } from '../stores/toast'
 import BaseButton from '../components/BaseButton.vue'
 import BaseCard from '../components/BaseCard.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 const courses = ref([])
 const logged = ref(false)
+const loadingDashboard = ref(false)
 const router = useRouter()
 const toast = useToastStore()
 
@@ -119,11 +127,14 @@ function logout() {
 onMounted(async () => {
   const token = localStorage.getItem('access_token')
   logged.value = !!token
+  loadingDashboard.value = true
   try {
     courses.value = await getCourses()
     if(subscriberId.value){ await loadEnrollments() }
   } catch (err) {
     console.error(err)
+  } finally {
+    loadingDashboard.value = false
   }
 })
 
