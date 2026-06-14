@@ -72,27 +72,6 @@ def _verify_mp_signature(request: Request, payment_id: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid Mercado Pago webhook signature")
 
 
-class WebhookPayload(BaseModel):
-    enrollment_id: int
-    status: str
-
-
-@router.post('/webhook')
-async def payment_webhook(payload: WebhookPayload):
-    """Simple payment webhook stub.
-
-    Expected JSON: { "enrollment_id": 123, "status": "paid" }
-    If status == 'paid' the enrollment will be marked paid via EnrollmentService.mark_paid.
-    """
-    # Simple stub: if status says paid, mark paid
-    if payload.status == 'paid':
-        e = await EnrollmentService.mark_paid(payload.enrollment_id)
-        if not e:
-            raise HTTPException(status_code=404, detail='Enrollment not found')
-        return { 'ok': True, 'enrollment_id': e.id, 'payment_status': e.payment_status }
-    return { 'ok': True, 'received': payload.status }
-
-
 class PreferenceRequest(BaseModel):
     enrollment_id: int
     title: str | None = None
@@ -121,6 +100,8 @@ async def create_preference(req: PreferenceRequest, user=Depends(require_user)):
 
     if price <= 0:
         paid = await EnrollmentService.mark_paid(req.enrollment_id, payment_method="free")
+        if paid == "full":
+            raise HTTPException(status_code=409, detail='Course is full')
         if not paid:
             raise HTTPException(status_code=404, detail='Enrollment not found')
         return {"free": True, "enrollment_id": paid.id, "payment_status": paid.payment_status}
@@ -183,6 +164,8 @@ async def mercadopago_webhook(request: Request):
     """
     if mercadopago is None:
         raise HTTPException(status_code=500, detail='mercadopago SDK not installed')
+    if settings.require_mercadopago_webhook_secret and not settings.MERCADOPAGO_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail='Mercado Pago webhook secret is required')
 
     raw_body = await request.body()
     try:
@@ -236,6 +219,15 @@ async def mercadopago_webhook(request: Request):
                 payment_provider_id=str(provider_payment_id),
                 payment_provider_status="approved",
             )
+            if e == "full":
+                await EnrollmentService.update_payment_attempt(
+                    enrollment_id,
+                    payment_method="mercadopago",
+                    payment_provider_id=str(provider_payment_id),
+                    payment_provider_status="approved_capacity_full",
+                    payment_reference=str(provider_payment_id),
+                )
+                return {'ok': True, 'enrollment_id': enrollment_id, 'status': 'approved_capacity_full'}
             if not e:
                 raise HTTPException(status_code=404, detail='Enrollment not found')
             return {'ok': True, 'enrollment_id': e.id}

@@ -101,6 +101,8 @@ async def mark_enrollment_paid(id: int, payment: ManualPaymentRequest | None = N
         payment_reference=payment.payment_reference if payment else None,
         manual_payment_notes=payment.manual_payment_notes if payment else None,
     )
+    if e == "full":
+        raise HTTPException(status_code=409, detail="Course is full")
     if not e:
         raise HTTPException(status_code=404, detail="Enrollment not found")
     return e

@@ -168,6 +168,17 @@ class EnrollmentService:
             e = EnrollmentRepository.get_by_id(db, id)
             if not e:
                 return None
+            if e.status != "active":
+                course = db.query(Course).filter(Course.id == e.course_id).first()
+                capacity = int(course.max_students or 0) if course else 0
+                if capacity > 0:
+                    active_count = db.query(Enrollment).filter(
+                        Enrollment.course_id == e.course_id,
+                        Enrollment.status == "active",
+                        Enrollment.id != e.id,
+                    ).count()
+                    if active_count >= capacity:
+                        return "full"
             e.payment_status = 'paid'
             e.status = 'active'
             e.paid_at = datetime.now(timezone.utc)

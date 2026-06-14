@@ -1,52 +1,7 @@
 <template>
   <div class="user-front">
     <section class="front-hero" :style="{ backgroundImage: heroBackground }">
-      <div class="front-hero-copy">
-        <div class="front-hero-actions">
-          <a class="btn btn-light" href="#courses">View courses</a>
-          <button v-if="!isAuthenticated" class="btn btn-outline-light" type="button" @click="login">Register / Login</button>
-          <a v-else class="btn btn-outline-light" href="#subscriber">My profile</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="front-steps">
-      <div>
-        <span>1</span>
-        <strong>Create your profile</strong>
-      </div>
-      <div>
-        <span>2</span>
-        <strong>Select a course</strong>
-      </div>
-      <div>
-        <span>3</span>
-        <strong>Confirm subscription</strong>
-      </div>
-    </section>
-
-    <section id="subscriber" class="front-registration">
-      <div>
-        <p class="eyebrow">Subscriber</p>
-        <h2>{{ isAuthenticated ? 'Your LabSchool profile' : 'Register as a subscriber' }}</h2>
-        <p>
-          {{ isAuthenticated ? 'Your account is ready to request course subscriptions.' : 'Create an account or log in before choosing a course.' }}
-        </p>
-      </div>
-      <div v-if="!isAuthenticated" class="front-login-panel">
-        <button class="btn btn-primary" type="button" @click="login">Create account / Login</button>
-      </div>
-      <div v-else class="front-profile-card">
-        <span class="subscriber-avatar">{{ userInitials }}</span>
-        <div>
-          <strong>{{ user?.name || user?.email || 'LabSchool user' }}</strong>
-          <span>{{ user?.email }}</span>
-          <small :class="{ 'text-danger': syncError }">{{ profileStatus }}</small>
-          <button v-if="syncError" class="btn btn-sm btn-outline-primary mt-2" type="button" @click="syncSubscriber(true)">
-            Retry app sync
-          </button>
-        </div>
-      </div>
+      <div class="front-hero-copy"></div>
     </section>
 
     <section id="courses" class="front-catalog">
@@ -69,82 +24,141 @@
         <span>New courses will appear here as soon as they are published.</span>
       </div>
 
-      <div v-else class="front-course-grid">
-        <article v-for="course in availableCourses" :key="course.id" class="front-course-card">
-          <div class="front-course-media">
-            <div class="front-course-media-heading">
-              <h3>{{ course.title }}</h3>
+      <div v-else class="course-browser">
+        <div class="course-list-panel">
+          <article
+            v-for="course in availableCourses"
+            :key="course.id"
+            class="course-list-item"
+            :class="{ active: focusedCourse?.id === course.id }"
+            @click="focusCourse(course)"
+          >
+            <span class="course-list-main">
+              <strong>{{ course.title }}</strong>
+              <small>{{ courseDateLabel(course) }}</small>
+            </span>
+            <span class="course-list-side">
               <span class="status-badge" :class="courseCatalogStatusClass(course)">{{ courseCatalogStatusLabel(course) }}</span>
+              <strong>{{ coursePriceLabel(course) }}</strong>
+            </span>
+            <span class="course-list-mobile-actions">
+              <button class="btn btn-outline-secondary btn-sm" type="button" @click.stop="openCourseDetails(course)">
+                Details
+              </button>
+              <button
+                v-if="isEnrolled(course.id)"
+                class="btn btn-primary btn-sm"
+                type="button"
+                @click.stop="$router.push(`/my-courses/${course.id}`)"
+              >
+                Open
+              </button>
+              <button
+                v-else-if="pendingEnrollment(course.id)"
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="pendingEnrollment(course.id).payment_method !== 'mercadopago'"
+                @click.stop="resumeMercadoPago(course)"
+              >
+                {{ pendingPaymentLabel(course.id) }}
+              </button>
+              <button
+                v-else
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="isFull(course)"
+                @click.stop="startSubscription(course)"
+              >
+                {{ isFull(course) ? 'Full' : 'Subscribe' }}
+              </button>
+            </span>
+          </article>
+        </div>
+
+        <aside v-if="focusedCourse" class="course-focus-panel">
+          <div class="course-focus-header">
+            <div>
+              <p class="eyebrow">Selected course</p>
+              <h3>{{ focusedCourse.title }}</h3>
+            </div>
+            <span class="status-badge" :class="courseCatalogStatusClass(focusedCourse)">{{ courseCatalogStatusLabel(focusedCourse) }}</span>
+          </div>
+          <p>{{ courseSummary(focusedCourse) }}</p>
+          <div class="course-focus-meta">
+            <span>
+              <small>Course fee</small>
+              <strong>{{ coursePriceLabel(focusedCourse) }}</strong>
+            </span>
+            <span>
+              <small>Schedule</small>
+              <strong>{{ courseDateLabel(focusedCourse) }}</strong>
+            </span>
+            <span>
+              <small>Seats</small>
+              <strong>{{ capacityLabel(focusedCourse) }}</strong>
+            </span>
+          </div>
+          <div class="course-focus-resources">
+            <p class="eyebrow">Programs and guides</p>
+            <div v-if="courseResources(focusedCourse.id).length === 0" class="empty-state compact">
+              <strong>No public resources yet</strong>
+              <span>Programs or guides will appear here when published.</span>
+            </div>
+            <div v-else class="course-file-list">
+              <button
+                v-for="file in courseResources(focusedCourse.id)"
+                :key="file.id"
+                class="course-file-row"
+                type="button"
+                @click="downloadResource(focusedCourse, file)"
+              >
+                <span>
+                  <strong>{{ file.original_filename }}</strong>
+                  <small>{{ file.content_type || 'File' }} · {{ formatFileSize(file.size_bytes) }}</small>
+                </span>
+              </button>
             </div>
           </div>
-          <div class="front-course-content">
-            <div class="front-course-meta">
-              <strong>${{ formatPrice(course.price) }}</strong>
-              <span>{{ courseDateLabel(course) }}</span>
-            </div>
-          </div>
-          <div class="front-course-actions">
-            <button
-              class="btn btn-outline-secondary"
-              type="button"
-              @click="openCourseDetails(course)"
-            >
+          <div class="front-course-actions course-focus-actions">
+            <button class="btn btn-outline-secondary" type="button" @click="openCourseDetails(focusedCourse)">
               Details
             </button>
             <button
-              v-if="isEnrolled(course.id)"
+              v-if="isEnrolled(focusedCourse.id)"
               class="btn btn-primary"
               type="button"
-              @click="$router.push(`/my-courses/${course.id}`)"
+              @click="$router.push(`/my-courses/${focusedCourse.id}`)"
             >
               Open course
             </button>
             <button
-              v-if="canJoinVirtualClass(course)"
+              v-if="canJoinVirtualClass(focusedCourse)"
               class="btn btn-success"
               type="button"
-              @click="joinVirtualClass(course)"
+              @click="joinVirtualClass(focusedCourse)"
             >
               Join Zoom class
             </button>
             <button
-              v-if="pendingEnrollment(course.id)"
-              class="btn btn-outline-secondary"
-              type="button"
-              :disabled="pendingEnrollment(course.id).payment_method !== 'mercadopago'"
-              @click="resumeMercadoPago(course)"
-            >
-              {{ pendingPaymentLabel(course.id) }}
-            </button>
-            <template v-else-if="!isEnrolled(course.id) && Number(course.price || 0) > 0">
-              <button
-                class="btn btn-primary"
-                type="button"
-                :disabled="isFull(course)"
-                @click="subscribe(course, 'mercadopago')"
-              >
-                {{ isFull(course) ? 'Full' : 'Pay with Mercado Pago' }}
-              </button>
-              <button
-                class="btn btn-outline-secondary"
-                type="button"
-                :disabled="isFull(course)"
-                @click="subscribe(course, 'manual')"
-              >
-                Transfer payment
-              </button>
-            </template>
-            <button
-              v-else-if="!isEnrolled(course.id)"
+              v-if="pendingEnrollment(focusedCourse.id)"
               class="btn btn-primary"
               type="button"
-              :disabled="isFull(course)"
-              @click="subscribe(course, 'free')"
+              :disabled="pendingEnrollment(focusedCourse.id).payment_method !== 'mercadopago'"
+              @click="resumeMercadoPago(focusedCourse)"
             >
-              {{ isFull(course) ? 'Full' : 'Subscribe' }}
+              {{ pendingPaymentLabel(focusedCourse.id) }}
+            </button>
+            <button
+              v-else-if="!isEnrolled(focusedCourse.id)"
+              class="btn btn-primary"
+              type="button"
+              :disabled="isFull(focusedCourse)"
+              @click="startSubscription(focusedCourse)"
+            >
+              {{ isFull(focusedCourse) ? 'Full' : 'Subscribe' }}
             </button>
           </div>
-        </article>
+        </aside>
       </div>
     </section>
 
@@ -212,37 +226,19 @@
             </button>
             <button
               v-if="pendingEnrollment(selectedCourse.id)"
-              class="btn btn-outline-secondary"
+              class="btn btn-primary"
               type="button"
               :disabled="pendingEnrollment(selectedCourse.id).payment_method !== 'mercadopago'"
               @click="resumeMercadoPago(selectedCourse)"
             >
               {{ pendingPaymentLabel(selectedCourse.id) }}
             </button>
-            <template v-else-if="!isEnrolled(selectedCourse.id) && Number(selectedCourse.price || 0) > 0">
-              <button
-                class="btn btn-primary"
-                type="button"
-                :disabled="isFull(selectedCourse)"
-                @click="subscribe(selectedCourse, 'mercadopago')"
-              >
-                {{ isFull(selectedCourse) ? 'Full' : 'Pay with Mercado Pago' }}
-              </button>
-              <button
-                class="btn btn-outline-secondary"
-                type="button"
-                :disabled="isFull(selectedCourse)"
-                @click="subscribe(selectedCourse, 'manual')"
-              >
-                Transfer payment
-              </button>
-            </template>
             <button
               v-else-if="!isEnrolled(selectedCourse.id)"
               class="btn btn-primary"
               type="button"
               :disabled="isFull(selectedCourse)"
-              @click="subscribe(selectedCourse, 'free')"
+              @click="startSubscription(selectedCourse)"
             >
               {{ isFull(selectedCourse) ? 'Full' : 'Subscribe' }}
             </button>
@@ -259,6 +255,43 @@
       </div>
     </div>
     <div v-if="selectedCourse" class="modal-backdrop fade show"></div>
+
+    <div v-if="subscriptionCourse" class="modal fade show d-block management-modal" tabindex="-1">
+      <div class="modal-dialog modal-md modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="eyebrow">Subscription</p>
+              <h2 class="modal-title">{{ subscriptionCourse.title }}</h2>
+            </div>
+            <button type="button" class="btn-close" aria-label="Close" @click="closeSubscriptionOptions"></button>
+          </div>
+          <div class="modal-body">
+            <div class="subscription-summary">
+              <span>
+                <small>Course fee</small>
+                <strong>{{ coursePriceLabel(subscriptionCourse) }}</strong>
+              </span>
+              <span>
+                <small>Schedule</small>
+                <strong>{{ courseDateLabel(subscriptionCourse) }}</strong>
+              </span>
+            </div>
+            <div class="payment-method-grid">
+              <button class="payment-method-card primary" type="button" @click="choosePaymentMethod('mercadopago')">
+                <strong>Mercado Pago</strong>
+                <span>Pay online and get access when the payment is approved.</span>
+              </button>
+              <button class="payment-method-card" type="button" @click="choosePaymentMethod('manual')">
+                <strong>Transfer payment</strong>
+                <span>Send your transfer and wait for administrator approval.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-if="subscriptionCourse" class="modal-backdrop fade show"></div>
   </div>
 </template>
 
@@ -278,6 +311,8 @@ const appUser = ref(null)
 const subscriberId = ref(null)
 const coursePublicResources = ref({})
 const selectedCourse = ref(null)
+const subscriptionCourse = ref(null)
+const focusedCourseId = ref(null)
 const loadingCatalog = ref(false)
 const syncInFlight = ref(false)
 const syncError = ref('')
@@ -288,26 +323,22 @@ const availableCourses = computed(() => courses.value
   .filter(course => !isPastCourse(course))
   .sort((a, b) => courseSortKey(a).localeCompare(courseSortKey(b)))
 )
+const focusedCourse = computed(() => {
+  if(availableCourses.value.length === 0) return null
+  return availableCourses.value.find(course => course.id === focusedCourseId.value) || availableCourses.value[0]
+})
 const profileStatus = computed(() => {
   if(syncError.value) return syncError.value
   if(appUser.value) return `App user #${appUser.value.id}`
   if(syncInFlight.value) return 'Preparing app user'
   return 'App user pending'
 })
-const userInitials = computed(() => {
-  const source = user.value?.name || user.value?.email || 'LS'
-  return String(source)
-    .split(/[ @.]/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(part => part[0]?.toUpperCase())
-    .join('')
-})
 
 onMounted(async () => {
   loadingCatalog.value = true
   try{
     courses.value = await getCourses()
+    focusDefaultCourse()
     await loadCoursePublicResources()
     await syncSubscriber()
   }finally{
@@ -362,6 +393,20 @@ async function loadEnrollments(){
   enrollments.value = await getEnrollmentsBySubscriber(subscriberId.value)
 }
 
+function focusCourse(course){
+  focusedCourseId.value = course?.id || null
+}
+
+function focusDefaultCourse(){
+  if(availableCourses.value.length === 0){
+    focusedCourseId.value = null
+    return
+  }
+  if(!availableCourses.value.find(course => course.id === focusedCourseId.value)){
+    focusedCourseId.value = availableCourses.value[0].id
+  }
+}
+
 function isEnrolled(courseId){
   return enrollments.value.find(enrollment => enrollment.course_id === courseId && enrollment.status === 'active')
 }
@@ -375,6 +420,26 @@ function pendingPaymentLabel(courseId){
   if(!enrollment) return 'Payment pending'
   if(enrollment.payment_method === 'mercadopago') return 'Resume payment'
   return 'Transfer pending approval'
+}
+
+function startSubscription(course){
+  if(Number(course.price || 0) <= 0){
+    subscribe(course, 'free')
+    return
+  }
+  selectedCourse.value = null
+  subscriptionCourse.value = course
+}
+
+function closeSubscriptionOptions(){
+  subscriptionCourse.value = null
+}
+
+async function choosePaymentMethod(method){
+  if(!subscriptionCourse.value) return
+  const course = subscriptionCourse.value
+  closeSubscriptionOptions()
+  await subscribe(course, method)
 }
 
 async function subscribe(course, paymentMethod = 'manual'){
@@ -398,6 +463,7 @@ async function subscribe(course, paymentMethod = 'manual'){
     })
     await loadEnrollments()
     courses.value = await getCourses()
+    focusDefaultCourse()
     await loadCoursePublicResources()
     if(Number(course.price || 0) > 0 && method === 'mercadopago'){
       const preference = await createPreference({ enrollment_id: enrollment.id })
@@ -435,6 +501,7 @@ async function unsubscribe(enrollmentId){
     toast.success('Subscription cancelled')
     await loadEnrollments()
     courses.value = await getCourses()
+    focusDefaultCourse()
     await loadCoursePublicResources()
     if(selectedCourse.value){
       selectedCourse.value = courses.value.find(course => course.id === selectedCourse.value.id) || null
@@ -453,6 +520,11 @@ function courseInitials(title){
 
 function formatPrice(price){
   return Number(price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function coursePriceLabel(course){
+  const price = Number(course.price || 0)
+  return price > 0 ? `$${formatPrice(price)}` : 'Free'
 }
 
 function capacityLabel(course){
@@ -501,6 +573,12 @@ function openCourseDetails(course){
 
 function closeCourseDetails(){
   selectedCourse.value = null
+}
+
+function courseSummary(course){
+  const text = String(course.description || '').trim()
+  if(!text) return 'A focused LabSchool course with guided practice and curated resources.'
+  return text.length > 118 ? `${text.slice(0, 115).trim()}...` : text
 }
 
 async function loadCoursePublicResources(){
