@@ -235,9 +235,9 @@ export async function getVirtualAccess(id){
   }catch(e){ return handleApiError(e, 'Get virtual access failed') }
 }
 
-export async function markEnrollmentPaid(id){
+export async function markEnrollmentPaid(id, payload = {}){
   try{
-    const resp = await api.post(`/enrollments/${id}/pay`)
+    const resp = await api.post(`/enrollments/${id}/pay`, payload)
     return resp.data
   }catch(e){ return handleApiError(e, 'Mark enrollment paid failed') }
 }

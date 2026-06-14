@@ -21,6 +21,7 @@ class CourseService:
             "price": course.price,
             "max_students": course.max_students,
             "scheduled_date": course.scheduled_date,
+            "scheduled_time": course.scheduled_time,
             "active_enrollments": active_count,
             "available_seats": available,
         }

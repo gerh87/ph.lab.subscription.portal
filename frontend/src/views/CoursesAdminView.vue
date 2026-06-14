@@ -56,7 +56,7 @@
           <thead>
             <tr>
               <th>Course</th>
-              <th>Date</th>
+              <th>Date/time</th>
               <th>Virtual</th>
               <th>Price</th>
               <th>Seats</th>
@@ -70,7 +70,7 @@
               <td>
                 <strong class="course-name">{{ c.title }}</strong>
               </td>
-              <td>{{ formatCourseDate(c.scheduled_date) }}</td>
+              <td>{{ formatCourseDateTime(c) }}</td>
               <td>
                 <span class="role-badge" :class="{ admin: Boolean(c.zoom_url) }">
                   {{ c.zoom_url ? 'Ready' : 'Missing' }}
@@ -198,8 +198,11 @@
             <tr>
               <th>User</th>
               <th>Status</th>
+              <th>Method</th>
               <th>Payment</th>
+              <th>Reference</th>
               <th>Requested</th>
+              <th class="actions-column">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -213,8 +216,24 @@
               <td>
                 <span class="role-badge" :class="{ admin: enrollment.status === 'active' }">{{ enrollment.status }}</span>
               </td>
-              <td>{{ enrollment.payment_status }}</td>
+              <td>{{ paymentMethodLabel(enrollment) }}</td>
+              <td>
+                <span class="role-badge" :class="{ admin: enrollment.payment_status === 'paid' }">{{ enrollment.payment_status }}</span>
+              </td>
+              <td>{{ enrollment.payment_reference || '-' }}</td>
               <td>{{ formatDate(enrollment.created_at) }}</td>
+              <td>
+                <div class="row-actions">
+                  <BaseButton
+                    v-if="enrollment.payment_status !== 'paid'"
+                    size="sm"
+                    variant="outline-secondary"
+                    @click="approveManualPayment(enrollment)"
+                  >
+                    Mark paid
+                  </BaseButton>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -266,6 +285,10 @@
                     <label>
                       <span>Course date</span>
                       <BaseInput v-model="form.scheduled_date" type="date" />
+                    </label>
+                    <label>
+                      <span>Course time</span>
+                      <BaseInput v-model="form.scheduled_time" type="time" />
                     </label>
                     <label>
                       <span>Price</span>
@@ -364,6 +387,10 @@
                   <BaseInput v-model="editing.scheduled_date" type="date" />
                 </label>
                 <label>
+                  <span>Course time</span>
+                  <BaseInput v-model="editing.scheduled_time" type="time" />
+                </label>
+                <label>
                   <span>Price</span>
                   <BaseInput v-model.number="editing.price" type="number" />
                 </label>
@@ -435,7 +462,7 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { deleteCourseFile, downloadCourseFile, getAdminCourses, createCourse as apiCreate, updateCourse, deleteCourse, listCourseFiles, listEnrollments, listSubscribers, uploadCourseFile } from '../services/api'
+import { deleteCourseFile, downloadCourseFile, getAdminCourses, createCourse as apiCreate, updateCourse, deleteCourse, listCourseFiles, listEnrollments, listSubscribers, markEnrollmentPaid, uploadCourseFile } from '../services/api'
 import { useToastStore } from '../stores/toast'
 import { useConfirmStore } from '../stores/confirm'
 import BaseInput from '../components/BaseInput.vue'
@@ -458,7 +485,7 @@ const courseFiles = ref({})
 const loadingCourses = ref(false)
 const loadingCourseFiles = ref(false)
 const loadingEditingCourseFiles = ref(false)
-const form = ref({ title: '', description: '', scheduled_date: '', zoom_url: '', price: 0, max_students: 0 })
+const form = ref({ title: '', description: '', scheduled_date: '', scheduled_time: '', zoom_url: '', price: 0, max_students: 0 })
 const createModalOpen = ref(false)
 const createStep = ref(1)
 const creatingCourse = ref(false)
@@ -497,7 +524,7 @@ const selectedCourseFiles = computed(() => selectedCourseId.value ? (courseFiles
 const editingCourseFiles = computed(() => editing.value?.id ? (courseFiles.value[editing.value.id] || []) : [])
 const selectedCourseEnrollments = computed(() => {
   if(!selectedCourse.value) return []
-  return enrollments.value.filter(enrollment => enrollment.course_id === selectedCourse.value.id && enrollment.status === 'active')
+  return enrollments.value.filter(enrollment => enrollment.course_id === selectedCourse.value.id && ['active', 'pending_payment'].includes(enrollment.status))
 })
 
 async function load() {
@@ -525,7 +552,7 @@ async function createCourse() {
   creatingCourse.value = true
   let created = null
   try{
-    created = await apiCreate(form.value)
+    created = await apiCreate(coursePayload(form.value))
   } catch(e){
     toast.error('Failed to create course: '+(e?.response?.data?.detail||e))
     creatingCourse.value = false
@@ -561,7 +588,7 @@ async function createCourse() {
 }
 
 function resetCreateWizard(){
-  form.value = { title: '', description: '', scheduled_date: '', zoom_url: '', price: 0, max_students: 0 }
+  form.value = { title: '', description: '', scheduled_date: '', scheduled_time: '', zoom_url: '', price: 0, max_students: 0 }
   pendingCourseFiles.value = []
   createStep.value = 1
 }
@@ -601,6 +628,15 @@ function canLeaveCreateStep(){
   return true
 }
 
+function coursePayload(source){
+  return {
+    ...source,
+    scheduled_date: source.scheduled_date || null,
+    scheduled_time: source.scheduled_time || null,
+    zoom_url: source.zoom_url || null,
+  }
+}
+
 function queueCourseFiles(event){
   const files = Array.from(event.target.files || [])
   event.target.value = ''
@@ -622,7 +658,7 @@ async function saveEdit() {
   const err = validCourse(editing.value)
   if(err){ toast.error(err); return }
   try{
-    await updateCourse(editing.value.id, editing.value)
+    await updateCourse(editing.value.id, coursePayload(editing.value))
     editing.value = null
     toast.success('Course updated')
     await load()
@@ -748,14 +784,41 @@ function subscriberFor(enrollment){
   return subscribers.value.find(subscriber => subscriber.id === enrollment.subscriber_id)
 }
 
+function paymentMethodLabel(enrollment){
+  if(enrollment.payment_method === 'mercadopago') return 'Mercado Pago'
+  if(enrollment.payment_method === 'manual') return 'Transfer'
+  if(enrollment.payment_method === 'free') return 'Free'
+  return '-'
+}
+
+async function approveManualPayment(enrollment){
+  const subscriber = subscriberFor(enrollment)
+  const ok = await confirmStore.show(`Mark payment as paid for ${subscriber?.full_name || 'this subscriber'}?`)
+  if(!ok) return
+  try{
+    await markEnrollmentPaid(enrollment.id, {
+      payment_reference: enrollment.payment_reference || 'manual-confirmation',
+      manual_payment_notes: 'Confirmed from Course Admin',
+    })
+    toast.success('Payment marked as paid')
+    await load()
+  }catch(e){ /* api service already reports the error */ }
+}
+
 function formatDate(value){
   if(!value) return '-'
   return new Date(value).toLocaleDateString()
 }
 
-function formatCourseDate(value){
-  if(!value) return 'Unscheduled'
-  return new Date(`${value}T00:00:00`).toLocaleDateString()
+function formatCourseDateTime(course){
+  if(!course?.scheduled_date) return 'Unscheduled'
+  const date = new Date(`${course.scheduled_date}T00:00:00`).toLocaleDateString()
+  return course.scheduled_time ? `${date} ${formatCourseTime(course.scheduled_time)}` : date
+}
+
+function formatCourseTime(value){
+  if(!value) return ''
+  return String(value).slice(0, 5)
 }
 
 function formatFileSize(bytes){

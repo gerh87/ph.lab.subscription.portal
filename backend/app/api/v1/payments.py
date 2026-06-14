@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from urllib.parse import urlparse
@@ -37,25 +40,36 @@ def _can_auto_return(app_url: str) -> bool:
     return parsed.scheme == "https" and parsed.hostname not in {"localhost", "127.0.0.1", "0.0.0.0"}
 
 
-class WebhookPayload(BaseModel):
-    enrollment_id: int
-    status: str
+def _parse_mp_signature(signature: str | None) -> dict[str, str]:
+    if not signature:
+        return {}
+    parts = {}
+    for item in signature.split(","):
+        if "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        parts[key.strip()] = value.strip()
+    return parts
 
 
-@router.post('/webhook')
-async def payment_webhook(payload: WebhookPayload):
-    """Simple payment webhook stub.
+def _verify_mp_signature(request: Request, payment_id: str | None) -> None:
+    if not settings.MERCADOPAGO_WEBHOOK_SECRET:
+        return
+    signature = _parse_mp_signature(request.headers.get("x-signature"))
+    request_id = request.headers.get("x-request-id")
+    ts = signature.get("ts")
+    v1 = signature.get("v1")
+    if not payment_id or not request_id or not ts or not v1:
+        raise HTTPException(status_code=401, detail="Invalid Mercado Pago webhook signature")
 
-    Expected JSON: { "enrollment_id": 123, "status": "paid" }
-    If status == 'paid' the enrollment will be marked paid via EnrollmentService.mark_paid.
-    """
-    # Simple stub: if status says paid, mark paid
-    if payload.status == 'paid':
-        e = await EnrollmentService.mark_paid(payload.enrollment_id)
-        if not e:
-            raise HTTPException(status_code=404, detail='Enrollment not found')
-        return { 'ok': True, 'enrollment_id': e.id, 'payment_status': e.payment_status }
-    return { 'ok': True, 'received': payload.status }
+    signed_payload = f"id:{payment_id};request-id:{request_id};ts:{ts};"
+    expected = hmac.new(
+        settings.MERCADOPAGO_WEBHOOK_SECRET.encode("utf-8"),
+        signed_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, v1):
+        raise HTTPException(status_code=401, detail="Invalid Mercado Pago webhook signature")
 
 
 class PreferenceRequest(BaseModel):
@@ -85,7 +99,9 @@ async def create_preference(req: PreferenceRequest, user=Depends(require_user)):
         db.close()
 
     if price <= 0:
-        paid = await EnrollmentService.mark_paid(req.enrollment_id)
+        paid = await EnrollmentService.mark_paid(req.enrollment_id, payment_method="free")
+        if paid == "full":
+            raise HTTPException(status_code=409, detail='Course is full')
         if not paid:
             raise HTTPException(status_code=404, detail='Enrollment not found')
         return {"free": True, "enrollment_id": paid.id, "payment_status": paid.payment_status}
@@ -127,6 +143,12 @@ async def create_preference(req: PreferenceRequest, user=Depends(require_user)):
             status_code=502,
             detail=f"Mercado Pago preference missing checkout URL (status {status or 'unknown'})",
         )
+    await EnrollmentService.update_payment_attempt(
+        req.enrollment_id,
+        payment_method="mercadopago",
+        payment_provider_id=response.get("id"),
+        payment_provider_status="preference_created",
+    )
     return {
         "init_point": init_point,
         "sandbox_init_point": response.get("sandbox_init_point"),
@@ -142,16 +164,25 @@ async def mercadopago_webhook(request: Request):
     """
     if mercadopago is None:
         raise HTTPException(status_code=500, detail='mercadopago SDK not installed')
+    if settings.require_mercadopago_webhook_secret and not settings.MERCADOPAGO_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail='Mercado Pago webhook secret is required')
 
-    body = await request.json()
+    raw_body = await request.body()
+    try:
+        body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except json.JSONDecodeError:
+        body = {}
     # Extract possible payment id from notification
     payment_id = None
     if isinstance(body, dict):
         # usual MP notification: {"type":"payment","data":{"id":<id>}}
         payment_id = body.get('data', {}).get('id') or body.get('id')
+    payment_id = payment_id or request.query_params.get("data.id") or request.query_params.get("id")
 
     if not payment_id:
         return {'ok': False, 'reason': 'no id found'}
+    payment_id = str(payment_id)
+    _verify_mp_signature(request, payment_id)
 
     sdk = mercadopago.SDK(settings.MERCADOPAGO_ACCESS_TOKEN or '')
     # Get payment details
@@ -179,10 +210,41 @@ async def mercadopago_webhook(request: Request):
     if approved and ext:
         try:
             enrollment_id = int(ext)
-            e = await EnrollmentService.mark_paid(enrollment_id)
+            provider_payment = next((p for p in payments if p.get('status') == 'approved'), None) or {}
+            provider_payment_id = provider_payment.get('id') or payment_id
+            e = await EnrollmentService.mark_paid(
+                enrollment_id,
+                payment_method="mercadopago",
+                payment_reference=str(provider_payment_id),
+                payment_provider_id=str(provider_payment_id),
+                payment_provider_status="approved",
+            )
+            if e == "full":
+                await EnrollmentService.update_payment_attempt(
+                    enrollment_id,
+                    payment_method="mercadopago",
+                    payment_provider_id=str(provider_payment_id),
+                    payment_provider_status="approved_capacity_full",
+                    payment_reference=str(provider_payment_id),
+                )
+                return {'ok': True, 'enrollment_id': enrollment_id, 'status': 'approved_capacity_full'}
             if not e:
                 raise HTTPException(status_code=404, detail='Enrollment not found')
             return {'ok': True, 'enrollment_id': e.id}
+        except ValueError:
+            return {'ok': False, 'reason': 'invalid external reference'}
+
+    if ext:
+        try:
+            enrollment_id = int(ext)
+            status = pay_resp.get('status') or mo_resp.get('status') or 'pending'
+            await EnrollmentService.update_payment_attempt(
+                enrollment_id,
+                payment_method="mercadopago",
+                payment_provider_id=str(payment_id),
+                payment_provider_status=str(status),
+                payment_reference=str(payment_id),
+            )
         except ValueError:
             return {'ok': False, 'reason': 'invalid external reference'}
 

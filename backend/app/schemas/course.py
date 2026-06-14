@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 from decimal import Decimal
-from datetime import date
+from datetime import date, time
 
 
 class CourseBase(BaseModel):
@@ -10,6 +10,7 @@ class CourseBase(BaseModel):
     price: Optional[Decimal] = 0
     max_students: Optional[int] = 0
     scheduled_date: Optional[date] = None
+    scheduled_time: Optional[time] = None
 
 
 class CourseCreate(CourseBase):
@@ -35,4 +36,5 @@ class CourseUpdate(BaseModel):
     price: Optional[Decimal] = None
     max_students: Optional[int] = None
     scheduled_date: Optional[date] = None
+    scheduled_time: Optional[time] = None
     zoom_url: Optional[str] = None

@@ -139,7 +139,7 @@ async def get_course(course_id: int):
 
 @router.put("/{course_id}", response_model=CourseRead)
 async def update_course(course_id: int, changes: CourseUpdate, _admin=Depends(require_admin)):
-    updated = await CourseService.update(course_id, {k: v for k, v in changes.model_dump().items() if v is not None})
+    updated = await CourseService.update(course_id, changes.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
     return updated

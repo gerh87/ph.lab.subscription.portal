@@ -16,6 +16,11 @@ class VirtualAccessRead(BaseModel):
     zoom_url: str
 
 
+class ManualPaymentRequest(BaseModel):
+    payment_reference: str | None = None
+    manual_payment_notes: str | None = None
+
+
 @router.post("/", response_model=EnrollmentRead)
 async def enroll(enrollment: EnrollmentCreate, user=Depends(require_user)):
     created = await EnrollmentService.create(enrollment, user)
@@ -89,8 +94,15 @@ async def cancel_enrollment(id: int, user=Depends(require_user)):
 
 
 @router.post("/{id}/pay", response_model=EnrollmentRead)
-async def mark_enrollment_paid(id: int, _admin=Depends(require_admin)):
-    e = await EnrollmentService.mark_paid(id)
+async def mark_enrollment_paid(id: int, payment: ManualPaymentRequest | None = None, _admin=Depends(require_admin)):
+    e = await EnrollmentService.mark_paid(
+        id,
+        payment_method="manual",
+        payment_reference=payment.payment_reference if payment else None,
+        manual_payment_notes=payment.manual_payment_notes if payment else None,
+    )
+    if e == "full":
+        raise HTTPException(status_code=409, detail="Course is full")
     if not e:
         raise HTTPException(status_code=404, detail="Enrollment not found")
     return e

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Numeric, Date, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, Numeric, Date, DateTime, Time, func
 from app.models import Base
 
 
@@ -11,5 +11,6 @@ class Course(Base):
     price = Column(Numeric(10, 2), default=0)
     max_students = Column(Integer, default=0)
     scheduled_date = Column(Date, nullable=True)
+    scheduled_time = Column(Time, nullable=True)
     zoom_url = Column(String(1024), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

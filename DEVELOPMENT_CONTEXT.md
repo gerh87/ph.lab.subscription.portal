@@ -389,17 +389,59 @@ Puertos host definidos:
 
 ## Estado Git
 
-Hay una carpeta `.git`, pero `git status` falla con:
+Repositorio Git operativo en branch `develop`.
 
-```text
-fatal: not a git repository (or any of the parent directories): .git
+Remoto esperado:
+
+```bash
+git remote -v
 ```
 
-Por ahora no se puede confiar en Git para revisar cambios desde esta carpeta. Conviene corregir esto antes de hacer commits o preparar deploy serio.
+debe apuntar a:
+
+```text
+https://github.com/gerh87/ph.lab.subscription.portal.git
+```
+
+## Pagos
+
+Flujo hibrido definido:
+
+- Cursos gratis: la inscripcion queda `active` y `payment_status=paid`.
+- Cursos pagos con transferencia/manual: la inscripcion queda `pending_payment` y `payment_status=pending`; un admin la confirma desde Course Admin.
+- Cursos pagos con Mercado Pago: la inscripcion queda `pending_payment`; se crea una preference y el webhook cambia a `active/paid` cuando Mercado Pago informa pago aprobado.
+
+Campos agregados en `enrollments`:
+
+- `payment_method`: `free`, `manual` o `mercadopago`.
+- `payment_reference`: referencia manual o id de pago.
+- `payment_provider_id`: id de preference/pago del proveedor.
+- `payment_provider_status`: estado informado por el proveedor.
+- `manual_payment_notes`: notas internas de aprobacion manual.
+- `payment_requested_at`: fecha de inicio del intento de pago.
+- `paid_at`: fecha de confirmacion de pago.
+
+Endpoints relevantes:
+
+- `POST /api/v1/payments/create_preference`
+- `POST /api/v1/payments/webhook/mp`
+- `POST /api/v1/enrollments/{id}/pay`
+
+Variables Mercado Pago:
+
+- `MERCADOPAGO_ACCESS_TOKEN`
+- `MERCADOPAGO_PUBLIC_KEY`
+- `MERCADOPAGO_NOTIFICATION_URL`
+- `MERCADOPAGO_WEBHOOK_SECRET` opcional pero recomendado para validar la firma del webhook.
+
+Pendiente de produccion:
+
+- probar sandbox completo con usuario comprador de prueba
+- configurar `MERCADOPAGO_WEBHOOK_SECRET`
+- cambiar a credenciales productivas cuando el ambiente deje de ser prueba
 
 ## Pendientes Sugeridos
 
-- Revisar/corregir estado de Git.
 - Separar compose local y compose prod, por ejemplo `docker-compose.prod.yml`.
 - Migrar frontend a OIDC generico si se quiere soportar Okta/Entra sin reescribir login.
 - Revisar si `zoom_url` debe ser visible solo para admin y no en respuestas publicas.
@@ -407,9 +449,7 @@ Por ahora no se puede confiar en Git para revisar cambios desde esta carpeta. Co
   - usuario normal no accede admin
   - usuario normal no obtiene Zoom de inscripcion ajena
   - Zoom solo disponible el dia del curso
-  - cancelacion elimina registro y libera cupo
-- Definir flujo de pagos manuales:
-  - pendiente
-  - pagado
-  - rechazado/anulado, si aplica
+  - pago manual solo lo confirma admin
+  - webhook Mercado Pago marca pago aprobado
+- Decidir si se necesitan pagos rechazados/anulados con historial separado.
 - Decidir si se necesita historial/auditoria de bajas en el futuro.

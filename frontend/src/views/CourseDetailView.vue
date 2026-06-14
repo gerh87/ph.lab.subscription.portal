@@ -233,7 +233,13 @@ async function login(){
 function courseDateLabel(value){
   const target = value?.scheduled_date
   if(!target) return 'Date to be confirmed'
-  return new Date(`${target}T00:00:00`).toLocaleDateString()
+  const date = new Date(`${target}T00:00:00`).toLocaleDateString()
+  return value?.scheduled_time ? `${date} ${formatCourseTime(value.scheduled_time)}` : date
+}
+
+function formatCourseTime(value){
+  if(!value) return ''
+  return String(value).slice(0, 5)
 }
 
 function capacityLabel(value){
